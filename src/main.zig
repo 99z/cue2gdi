@@ -44,10 +44,8 @@ fn find(string: []const u8, literal: []const u8) ?usize {
     return null;
 }
 
-fn extractCueData(cue_reader: std.fs.File.Reader) anyerror!void {
+fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) anyerror!std.MultiArrayList(CueFile).Slice {
     // Setup MultiArrayList of CueFile structs
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const gpa_alloc = gpa.allocator();
     const CueFileList = std.MultiArrayList(CueFile);
     var cue_files = CueFileList{};
     defer cue_files.deinit(gpa_alloc);
@@ -61,12 +59,11 @@ fn extractCueData(cue_reader: std.fs.File.Reader) anyerror!void {
     var current_rem = RemType.single_density;
     var filename_buf: []const u8 = undefined;
     var prev_line: []const u8 = undefined;
-    var i: u8 = 0;
 
     // Previously I was using `readUntilDelimeterOrEof`. I ran into a weird problem where the value of
     // prev_line was not what I expected. This reddit post helped: https://www.reddit.com/r/Zig/comments/r6b84d/i_implement_a_code_to_read_file_line_by_line_but/
     // Specifically: "You are reading into the beginning of buf in every iteration of the loop, and then add a slice of buf into your array list."
-    while (try cue_reader.readUntilDelimiterOrEofAlloc(arena_alloc, '\n', 1024)) |line| : (i += 1) {
+    while (try cue_reader.readUntilDelimiterOrEofAlloc(arena_alloc, '\n', 1024)) |line| {
         if (find(line, "FILE") != null) {
             if (find(prev_line, "HIGH-DENSITY") != null) {
                 current_rem = .high_density;
@@ -81,7 +78,8 @@ fn extractCueData(cue_reader: std.fs.File.Reader) anyerror!void {
         if (new_file == true) {
             try cue_files.append(gpa_alloc, .{
                 .rem_type = current_rem,
-                .file_name = filename_buf,
+                // Causes a segfault if I simply do .file_name = filename_buf
+                .file_name = try std.mem.Allocator.dupe(std.heap.page_allocator, u8, filename_buf),
             });
 
             filename_buf = undefined;
@@ -91,16 +89,25 @@ fn extractCueData(cue_reader: std.fs.File.Reader) anyerror!void {
         prev_line = line;
     }
 
-    for (cue_files.slice().items(.rem_type)) |file| {
-        std.debug.print("{any}\n", .{file});
-    }
+    return cue_files.toOwnedSlice();
 }
 
 pub fn main() anyerror!void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const gpa_alloc = gpa.allocator();
+
     const cue_file = try std.fs.cwd().openFile("./re2.cue", .{});
     defer cue_file.close();
 
     const cue_reader = cue_file.reader();
 
-    try extractCueData(cue_reader);
+    var cue_files = try extractCueData(gpa_alloc, cue_reader);
+    defer cue_files.deinit(gpa_alloc);
+
+    std.debug.print("{any}\n", .{cue_files});
+
+    for (cue_files.items(.file_name)) |file, index| {
+        std.debug.print("{any}\n", .{index});
+        std.debug.print("{s}\n", .{file});
+    }
 }
