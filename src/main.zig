@@ -8,13 +8,13 @@ const TrackOffset = struct { minutes: u8, seconds: u8, frames: u8 };
 const CueTrack = struct {
     number: u8,
     mode: TrackMode,
-    indices: []TrackOffset,
+    // indices: []TrackOffset,
 };
 
 const CueFile = struct {
     rem_type: RemType,
     file_name: []const u8,
-    // track: CueTrack,
+    track: CueTrack,
 };
 
 inline fn getUTF8Size(char: u8) u3 {
@@ -55,16 +55,32 @@ fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) 
     defer arena.deinit();
     const arena_alloc = arena.allocator();
 
+    var cue_track: CueTrack = undefined;
     var new_file = false;
     var current_rem = RemType.single_density;
-    var filename_buf: []const u8 = undefined;
-    var prev_line: []const u8 = undefined;
+    var filename_buf: []const u8 = &.{};
+    var prev_line: []const u8 = &.{};
+    var file_count: u8 = 0;
 
     // Previously I was using `readUntilDelimeterOrEof`. I ran into a weird problem where the value of
     // prev_line was not what I expected. This reddit post helped: https://www.reddit.com/r/Zig/comments/r6b84d/i_implement_a_code_to_read_file_line_by_line_but/
     // Specifically: "You are reading into the beginning of buf in every iteration of the loop, and then add a slice of buf into your array list."
     while (try cue_reader.readUntilDelimiterOrEofAlloc(arena_alloc, '\n', 1024)) |line| {
+        if (new_file == true and file_count > 1) {
+            try cue_files.append(gpa_alloc, .{
+                .rem_type = current_rem,
+                // Causes a segfault if I simply do .file_name = filename_buf
+                .file_name = try std.mem.Allocator.dupe(std.heap.page_allocator, u8, filename_buf),
+                .track = cue_track,
+            });
+
+            filename_buf = &.{};
+            new_file = false;
+            cue_track = undefined;
+        }
+
         if (find(line, "FILE") != null) {
+            file_count += 1;
             if (find(prev_line, "HIGH-DENSITY") != null) {
                 current_rem = .high_density;
             } else if (find(prev_line, "SINGLE-DENSITY") != null) {
@@ -73,17 +89,22 @@ fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) 
 
             new_file = true;
             filename_buf = line;
-        }
+        } else if (find(line, "TRACK") != null) {
+            var split_iter = std.mem.split(u8, line, " ");
 
-        if (new_file == true) {
-            try cue_files.append(gpa_alloc, .{
-                .rem_type = current_rem,
-                // Causes a segfault if I simply do .file_name = filename_buf
-                .file_name = try std.mem.Allocator.dupe(std.heap.page_allocator, u8, filename_buf),
-            });
+            while (split_iter.next()) |item| {
+                if (std.fmt.parseInt(u8, item, 10)) |number| {
+                    cue_track.number = number;
+                } else |err| switch (err) {
+                    else => continue,
+                }
+            }
 
-            filename_buf = undefined;
-            new_file = false;
+            if (find(line, "AUDIO") != null) {
+                cue_track.mode = .audio;
+            } else if (find(line, "MODE1") != null) {
+                cue_track.mode = .data;
+            }
         }
 
         prev_line = line;
@@ -104,10 +125,7 @@ pub fn main() anyerror!void {
     var cue_files = try extractCueData(gpa_alloc, cue_reader);
     defer cue_files.deinit(gpa_alloc);
 
-    std.debug.print("{any}\n", .{cue_files});
-
-    for (cue_files.items(.file_name)) |file, index| {
-        std.debug.print("{any}\n", .{index});
-        std.debug.print("{s}\n", .{file});
-    }
+    // for (cue_files.items(.track)) |track| {
+    //     std.debug.print("{any}\n", .{track});
+    // }
 }
