@@ -8,7 +8,7 @@ const TrackOffset = struct { minutes: u8, seconds: u8, frames: u8 };
 const CueTrack = struct {
     number: u8,
     mode: TrackMode,
-    // indices: []TrackOffset,
+    indices: std.MultiArrayList(TrackOffset),
 };
 
 const CueFile = struct {
@@ -48,7 +48,10 @@ fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) 
     // Setup MultiArrayList of CueFile structs
     const CueFileList = std.MultiArrayList(CueFile);
     var cue_files = CueFileList{};
+    const TrackOffsetList = std.MultiArrayList(TrackOffset);
+    var offset_list = TrackOffsetList{};
     defer cue_files.deinit(gpa_alloc);
+    defer offset_list.deinit(gpa_alloc);
 
     // Create allocator for reading file contents
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -66,10 +69,12 @@ fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) 
     // Specifically: "You are reading into the beginning of buf in every iteration of the loop, and then add a slice of buf into your array list."
     while (true) {
         if (cue_reader.readUntilDelimiterAlloc(arena_alloc, '\n', 1024)) |line| {
+            // Handle FILE information and REM information
             if (find(line, "FILE") != null) {
                 file_count += 1;
 
                 if (file_count > 1) {
+                    cue_track.indices = try offset_list.clone(gpa_alloc);
                     try cue_files.append(gpa_alloc, .{
                         .rem_type = current_rem,
                         // Causes a segfault if I simply do .file_name = filename_buf
@@ -78,6 +83,7 @@ fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) 
                     });
 
                     filename_buf = &.{};
+                    offset_list = TrackOffsetList{};
                     cue_track = undefined;
                 }
 
@@ -89,6 +95,7 @@ fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) 
 
                 filename_buf = line;
             } else if (find(line, "TRACK") != null) {
+                // Handle TRACK information
                 var split_iter = std.mem.split(u8, line, " ");
 
                 while (split_iter.next()) |item| {
@@ -104,11 +111,42 @@ fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) 
                 } else if (find(line, "MODE1") != null) {
                     cue_track.mode = .data;
                 }
+            } else if (find(line, "INDEX") != null) {
+                var split_iter = std.mem.split(u8, line, " ");
+                while (split_iter.next()) |item| {
+                    if (std.fmt.parseInt(u8, item, 10)) {
+                        // Result of .next() here should be the MM:SS:FF timestamp string
+                        const track_time = split_iter.next();
+                        var track_split = std.mem.split(u8, track_time.?, ":");
+
+                        // TODO: Look into refactoring? Wondering if there's any stdlib functions
+                        // to make this simpler
+                        var times_split: [3]u8 = .{ 0, 0, 0 };
+                        var times_idx: u8 = 0;
+                        while (track_split.next()) |time| : (times_idx += 1) {
+                            if (std.fmt.parseInt(u8, time, 10)) |num| {
+                                times_split[times_idx] = num;
+                            } else |err| switch (err) {
+                                else => continue,
+                            }
+                        }
+
+                        try offset_list.append(gpa_alloc, .{
+                            .minutes = times_split[0],
+                            .seconds = times_split[1],
+                            .frames = times_split[2],
+                        });
+                    } else |err| switch (err) {
+                        else => continue,
+                    }
+                }
             }
 
             prev_line = line;
         } else |err| switch (err) {
             else => {
+                cue_track.indices = try offset_list.clone(gpa_alloc);
+
                 try cue_files.append(gpa_alloc, .{
                     .rem_type = current_rem,
                     // Causes a segfault if I simply do .file_name = filename_buf
@@ -137,6 +175,6 @@ pub fn main() anyerror!void {
     defer cue_files.deinit(gpa_alloc);
 
     for (cue_files.items(.track)) |track| {
-        std.debug.print("{any}\n", .{track});
+        std.debug.print("{any}\n", .{track.indices});
     }
 }
