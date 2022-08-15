@@ -44,6 +44,7 @@ fn find(string: []const u8, literal: []const u8) ?usize {
     return null;
 }
 
+// TODO: Break this up
 fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) anyerror!std.MultiArrayList(CueFile).Slice {
     // Setup MultiArrayList of CueFile structs
     const CueFileList = std.MultiArrayList(CueFile);
@@ -58,6 +59,7 @@ fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) 
     defer arena.deinit();
     const arena_alloc = arena.allocator();
 
+    // TODO: Remove undefined initialization
     var cue_track: CueTrack = undefined;
     var current_rem = RemType.single_density;
     var filename_buf: []const u8 = &.{};
@@ -84,6 +86,7 @@ fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) 
 
                     filename_buf = &.{};
                     offset_list = TrackOffsetList{};
+                    // TODO: Removed undefined assignment
                     cue_track = undefined;
                 }
 
@@ -119,22 +122,16 @@ fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) 
                         const track_time = split_iter.next();
                         var track_split = std.mem.split(u8, track_time.?, ":");
 
-                        // TODO: Look into refactoring? Wondering if there's any stdlib functions
-                        // to make this simpler
-                        var times_split: [3]u8 = .{ 0, 0, 0 };
-                        var times_idx: u8 = 0;
-                        while (track_split.next()) |time| : (times_idx += 1) {
-                            if (std.fmt.parseInt(u8, time, 10)) |num| {
-                                times_split[times_idx] = num;
-                            } else |err| switch (err) {
-                                else => continue,
-                            }
-                        }
+                        var time: [3]u8 = .{
+                            std.fmt.parseInt(u8, track_split.next() orelse "00", 10) catch 0,
+                            std.fmt.parseInt(u8, track_split.next() orelse "00", 10) catch 0,
+                            std.fmt.parseInt(u8, track_split.next() orelse "00", 10) catch 0,
+                        };
 
                         try offset_list.append(gpa_alloc, .{
-                            .minutes = times_split[0],
-                            .seconds = times_split[1],
-                            .frames = times_split[2],
+                            .minutes = time[0],
+                            .seconds = time[1],
+                            .frames = time[2],
                         });
                     } else |err| switch (err) {
                         else => continue,
