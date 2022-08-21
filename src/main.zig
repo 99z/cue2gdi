@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const BLOCK_SIZE = 2352;
+
 const RemType = enum { single_density, high_density };
 const TrackMode = enum { data, audio };
 
@@ -16,6 +18,18 @@ const CueFile = struct {
     file_name: []const u8,
     track: CueTrack,
 };
+
+fn getFileName(cue_line: []const u8) []const u8 {
+    // Get index of first instance of "
+    const index = std.mem.indexOfScalar(u8, cue_line, '"') orelse @panic("no name");
+
+    // If we only have a single " at the end of the file line, it's invalid
+    if (index + 1 >= cue_line.len) @panic("no closing quote");
+
+    const rest = cue_line[index + 1 ..];
+    const stop = std.mem.indexOfScalar(u8, rest, '"') orelse @panic("no stop");
+    return rest[0..stop];
+}
 
 inline fn getUTF8Size(char: u8) u3 {
     return std.unicode.utf8ByteSequenceLength(char) catch {
@@ -80,7 +94,7 @@ fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) 
                     try cue_files.append(gpa_alloc, .{
                         .rem_type = current_rem,
                         // Causes a segfault if I simply do .file_name = filename_buf
-                        .file_name = try std.mem.Allocator.dupe(std.heap.page_allocator, u8, filename_buf),
+                        .file_name = try std.mem.Allocator.dupe(std.heap.page_allocator, u8, getFileName(filename_buf)),
                         .track = cue_track,
                     });
 
@@ -122,7 +136,7 @@ fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) 
                         const track_time = split_iter.next();
                         var track_split = std.mem.split(u8, track_time.?, ":");
 
-                        var time: [3]u8 = .{
+                        const time: [3]u8 = .{
                             std.fmt.parseInt(u8, track_split.next() orelse "00", 10) catch 0,
                             std.fmt.parseInt(u8, track_split.next() orelse "00", 10) catch 0,
                             std.fmt.parseInt(u8, track_split.next() orelse "00", 10) catch 0,
@@ -147,7 +161,7 @@ fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) 
                 try cue_files.append(gpa_alloc, .{
                     .rem_type = current_rem,
                     // Causes a segfault if I simply do .file_name = filename_buf
-                    .file_name = try std.mem.Allocator.dupe(std.heap.page_allocator, u8, filename_buf),
+                    .file_name = try std.mem.Allocator.dupe(std.heap.page_allocator, u8, getFileName(filename_buf)),
                     .track = cue_track,
                 });
 
@@ -171,7 +185,9 @@ pub fn main() anyerror!void {
     var cue_files = try extractCueData(gpa_alloc, cue_reader);
     defer cue_files.deinit(gpa_alloc);
 
-    for (cue_files.items(.track)) |track| {
-        std.debug.print("{any}\n", .{track.indices});
+    for (cue_files.items(.file_name)) |file_name| {
+        var file = try std.fs.cwd().openFile(file_name, .{});
+        const file_size = (try file.stat()).size;
+        std.debug.print("{any}\n", .{file_size});
     }
 }
