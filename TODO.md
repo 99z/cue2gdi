@@ -1,6 +1,6 @@
 ## General notes
 
-* .bin files in Redump backups are identical to those in GDI backups. .raw files in GDI backups are also identical, just renamed .raw to identify as an audio track.
+* .bin files in Redump backups are identical to those in GDI backups.
 
 * GDI files have the format:
 ```

@@ -58,8 +58,33 @@ fn find(string: []const u8, literal: []const u8) ?usize {
     return null;
 }
 
+fn countIndexFrames(offset: TrackOffset) u32 {
+    var total = offset.frames;
+    total += (offset.seconds * 75);
+    total += (offset.minutes * 60) * 75;
+
+    return total;
+}
+
+fn writeFile(gpa: std.mem.Allocator, filename: []const u8, is_audio: bool) !void {
+    const out_dir = "gdi";
+    const bin_file = try std.fs.cwd().openFile(filename, .{});
+    defer bin_file.close();
+
+    std.fs.cwd().makeDir(out_dir) catch std.debug.print("{s} already exists; continuing\n", .{out_dir});
+    const dir = try std.fs.cwd().openDir(out_dir, .{});
+
+    if (is_audio) {
+        const index = std.mem.indexOfScalar(u8, filename, '.') orelse @panic("no extension");
+        const raw_name = try std.fmt.allocPrint(gpa, "{s}.raw", .{filename[0..index]});
+        try dir.writeFile(raw_name, try bin_file.readToEndAlloc(gpa, 4294967296));
+    } else {
+        try dir.writeFile(filename, try bin_file.readToEndAlloc(gpa, 4294967296));
+    }
+}
+
 // TODO: Break this up
-fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) anyerror!std.MultiArrayList(CueFile).Slice {
+fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) anyerror!std.MultiArrayList(CueFile) {
     // Setup MultiArrayList of CueFile structs
     const CueFileList = std.MultiArrayList(CueFile);
     var cue_files = CueFileList{};
@@ -170,7 +195,7 @@ fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) 
         }
     }
 
-    return cue_files.toOwnedSlice();
+    return try cue_files.clone(gpa_alloc);
 }
 
 pub fn main() anyerror!void {
@@ -180,14 +205,40 @@ pub fn main() anyerror!void {
     const cue_file = try std.fs.cwd().openFile("./re2.cue", .{});
     defer cue_file.close();
 
+    const gdi_file = try std.fs.cwd().createFile("test.gdi", .{});
+    defer gdi_file.close();
+
     const cue_reader = cue_file.reader();
 
     var cue_files = try extractCueData(gpa_alloc, cue_reader);
     defer cue_files.deinit(gpa_alloc);
 
-    for (cue_files.items(.file_name)) |file_name| {
-        var file = try std.fs.cwd().openFile(file_name, .{});
+    try gdi_file.writer().print("{}\n", .{cue_files.len});
+
+    var sector_total: usize = 0;
+    var idx: u8 = 0;
+    while (cue_files.len > idx) : (idx += 1) {
+        const cue_data = cue_files.get(idx);
+        if (cue_data.rem_type == .high_density and sector_total < 45000) {
+            sector_total = 45000;
+        }
+
+        var file = try std.fs.cwd().openFile(cue_data.file_name, .{});
         const file_size = (try file.stat()).size;
-        std.debug.print("{any}\n", .{file_size});
+
+        try writeFile(gpa_alloc, cue_data.file_name, if (cue_data.track.mode == .audio) true else false);
+
+        var sector_size: usize = 0;
+        if (cue_data.track.indices.len == 1) {
+            sector_size = file_size / BLOCK_SIZE;
+        } else {
+            const gap_offset = countIndexFrames(cue_data.track.indices.get(1));
+            sector_size = (file_size - (gap_offset * BLOCK_SIZE)) / BLOCK_SIZE;
+            sector_total += gap_offset;
+        }
+
+        const track_mode: u8 = if (cue_data.track.mode == .audio) 0 else 4;
+        try gdi_file.writer().print("{} {} {} {} {s} 0\n", .{ idx + 1, sector_total, track_mode, BLOCK_SIZE, cue_data.file_name });
+        sector_total += sector_size;
     }
 }
