@@ -2,5 +2,6 @@ zig-cache
 zig-out
 .vscode
 *.bin
+*.cue
 *.gdi
 *.raw
