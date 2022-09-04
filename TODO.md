@@ -25,3 +25,6 @@
     e.g. 00:02:00 would result in a sector offset of 150
 ```
 * sector_amt = filesize of current track / block size (always 2352 for DC games) or, if multiple tracks, sector_amt = (track size - (offset * block size)) / block size and add offset to current sector
+
+* bin/raw files must be named "trackXX.{bin,raw}
+* gdi file can be named anything

@@ -67,10 +67,12 @@ fn countIndexFrames(offset: TrackOffset) u32 {
     return total;
 }
 
-fn writeFile(gpa: std.mem.Allocator, filename: []const u8, is_audio: bool, gap_offset: u32) !void {
+fn writeFile(gpa: std.mem.Allocator, filename: []const u8, track_num: u8, is_audio: bool, gap_offset: u32) ![]const u8 {
     const out_dir = "gdi";
     const bin_file = try std.fs.cwd().openFile(filename, .{});
     defer bin_file.close();
+
+    var filename_with_ext: []const u8 = try std.fmt.allocPrint(gpa, "track{any}.bin", .{track_num});
 
     if (gap_offset > 0) {
         bin_file.seekTo(gap_offset * BLOCK_SIZE) catch @panic("could not seek bin file");
@@ -80,12 +82,13 @@ fn writeFile(gpa: std.mem.Allocator, filename: []const u8, is_audio: bool, gap_o
     const dir = try std.fs.cwd().openDir(out_dir, .{});
 
     if (is_audio) {
-        const index = std.mem.indexOfScalar(u8, filename, '.') orelse @panic("no extension");
-        const raw_name = try std.fmt.allocPrint(gpa, "{s}.raw", .{filename[0..index]});
-        try dir.writeFile(raw_name, try bin_file.readToEndAlloc(gpa, FOUR_GiB));
+        filename_with_ext = try std.fmt.allocPrint(gpa, "track{any}.raw", .{track_num});
+        try dir.writeFile(filename_with_ext, try bin_file.readToEndAlloc(gpa, FOUR_GiB));
     } else {
-        try dir.writeFile(filename, try bin_file.readToEndAlloc(gpa, FOUR_GiB));
+        try dir.writeFile(filename_with_ext, try bin_file.readToEndAlloc(gpa, FOUR_GiB));
     }
+
+    return filename_with_ext;
 }
 
 // TODO: Break this up
@@ -207,7 +210,7 @@ pub fn main() anyerror!void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const gpa_alloc = gpa.allocator();
 
-    const cue_file = try std.fs.cwd().openFile("./re2.cue", .{});
+    const cue_file = try std.fs.cwd().openFile("./Tokyo Xtreme Racer 2 (USA).cue", .{});
     defer cue_file.close();
 
     const gdi_file = try std.fs.cwd().createFile("test.gdi", .{});
@@ -241,10 +244,10 @@ pub fn main() anyerror!void {
             sector_total += gap_offset;
         }
 
-        try writeFile(gpa_alloc, cue_data.file_name, if (cue_data.track.mode == .audio) true else false, gap_offset);
+        const filename_with_ext = try writeFile(gpa_alloc, cue_data.file_name, cue_data.track.number, if (cue_data.track.mode == .audio) true else false, gap_offset);
 
         const track_mode: u8 = if (cue_data.track.mode == .audio) 0 else 4;
-        try gdi_file.writer().print("{} {} {} {} {s} 0\n", .{ idx + 1, sector_total, track_mode, BLOCK_SIZE, cue_data.file_name });
+        try gdi_file.writer().print("{} {} {} {} {s} 0\n", .{ idx + 1, sector_total, track_mode, BLOCK_SIZE, filename_with_ext });
         sector_total += sector_size;
     }
 }
