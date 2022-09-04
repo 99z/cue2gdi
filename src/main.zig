@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const BLOCK_SIZE = 2352;
+const FOUR_GiB = 4294967296;
 
 const RemType = enum { single_density, high_density };
 const TrackMode = enum { data, audio };
@@ -66,10 +67,14 @@ fn countIndexFrames(offset: TrackOffset) u32 {
     return total;
 }
 
-fn writeFile(gpa: std.mem.Allocator, filename: []const u8, is_audio: bool) !void {
+fn writeFile(gpa: std.mem.Allocator, filename: []const u8, is_audio: bool, gap_offset: u32) !void {
     const out_dir = "gdi";
     const bin_file = try std.fs.cwd().openFile(filename, .{});
     defer bin_file.close();
+
+    if (gap_offset > 0) {
+        bin_file.seekTo(gap_offset * BLOCK_SIZE) catch @panic("could not seek bin file");
+    }
 
     std.fs.cwd().makeDir(out_dir) catch std.debug.print("{s} already exists; continuing\n", .{out_dir});
     const dir = try std.fs.cwd().openDir(out_dir, .{});
@@ -77,9 +82,9 @@ fn writeFile(gpa: std.mem.Allocator, filename: []const u8, is_audio: bool) !void
     if (is_audio) {
         const index = std.mem.indexOfScalar(u8, filename, '.') orelse @panic("no extension");
         const raw_name = try std.fmt.allocPrint(gpa, "{s}.raw", .{filename[0..index]});
-        try dir.writeFile(raw_name, try bin_file.readToEndAlloc(gpa, 4294967296));
+        try dir.writeFile(raw_name, try bin_file.readToEndAlloc(gpa, FOUR_GiB));
     } else {
-        try dir.writeFile(filename, try bin_file.readToEndAlloc(gpa, 4294967296));
+        try dir.writeFile(filename, try bin_file.readToEndAlloc(gpa, FOUR_GiB));
     }
 }
 
@@ -226,16 +231,17 @@ pub fn main() anyerror!void {
         var file = try std.fs.cwd().openFile(cue_data.file_name, .{});
         const file_size = (try file.stat()).size;
 
-        try writeFile(gpa_alloc, cue_data.file_name, if (cue_data.track.mode == .audio) true else false);
-
         var sector_size: usize = 0;
+        var gap_offset: u32 = 0;
         if (cue_data.track.indices.len == 1) {
             sector_size = file_size / BLOCK_SIZE;
         } else {
-            const gap_offset = countIndexFrames(cue_data.track.indices.get(1));
+            gap_offset = countIndexFrames(cue_data.track.indices.get(1));
             sector_size = (file_size - (gap_offset * BLOCK_SIZE)) / BLOCK_SIZE;
             sector_total += gap_offset;
         }
+
+        try writeFile(gpa_alloc, cue_data.file_name, if (cue_data.track.mode == .audio) true else false, gap_offset);
 
         const track_mode: u8 = if (cue_data.track.mode == .audio) 0 else 4;
         try gdi_file.writer().print("{} {} {} {} {s} 0\n", .{ idx + 1, sector_total, track_mode, BLOCK_SIZE, cue_data.file_name });
