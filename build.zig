@@ -12,6 +12,7 @@ pub fn build(b: *std.build.Builder) void {
     const mode = b.standardReleaseOptions();
 
     const exe = b.addExecutable("cue2gdi", "src/main.zig");
+    exe.addPackagePath("clap", "lib/zig-clap/clap.zig");
     exe.setTarget(target);
     exe.setBuildMode(mode);
     exe.install();

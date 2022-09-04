@@ -1,4 +1,5 @@
 const std = @import("std");
+const clap = @import("clap");
 
 const BLOCK_SIZE = 2352;
 const FOUR_GiB = 4294967296;
@@ -67,9 +68,8 @@ fn countIndexFrames(offset: TrackOffset) u32 {
     return total;
 }
 
-fn writeFile(gpa: std.mem.Allocator, filename: []const u8, track_num: u8, is_audio: bool, gap_offset: u32) ![]const u8 {
-    const out_dir = "gdi";
-    const bin_file = try std.fs.cwd().openFile(filename, .{});
+fn writeFile(gpa: std.mem.Allocator, in_dir: std.fs.Dir, out_dir: std.fs.Dir, filename: []const u8, track_num: u8, is_audio: bool, gap_offset: u32) ![]const u8 {
+    const bin_file = try in_dir.openFile(filename, .{});
     defer bin_file.close();
 
     var filename_with_ext: []const u8 = try std.fmt.allocPrint(gpa, "track{any}.bin", .{track_num});
@@ -78,14 +78,11 @@ fn writeFile(gpa: std.mem.Allocator, filename: []const u8, track_num: u8, is_aud
         bin_file.seekTo(gap_offset * BLOCK_SIZE) catch @panic("could not seek bin file");
     }
 
-    std.fs.cwd().makeDir(out_dir) catch std.debug.print("{s} already exists; continuing\n", .{out_dir});
-    const dir = try std.fs.cwd().openDir(out_dir, .{});
-
     if (is_audio) {
         filename_with_ext = try std.fmt.allocPrint(gpa, "track{any}.raw", .{track_num});
-        try dir.writeFile(filename_with_ext, try bin_file.readToEndAlloc(gpa, FOUR_GiB));
+        try out_dir.writeFile(filename_with_ext, try bin_file.readToEndAlloc(gpa, FOUR_GiB));
     } else {
-        try dir.writeFile(filename_with_ext, try bin_file.readToEndAlloc(gpa, FOUR_GiB));
+        try out_dir.writeFile(filename_with_ext, try bin_file.readToEndAlloc(gpa, FOUR_GiB));
     }
 
     return filename_with_ext;
@@ -207,13 +204,34 @@ fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) 
 }
 
 pub fn main() anyerror!void {
+    const params = comptime clap.parseParamsComptime(
+        \\-h, --help    Display this help and exit.
+        \\-i, --input <str>  Path to a Redump cue file. Must be in the same directory as the corresponding bin files.
+        \\-o, --output <str>    Path to output directory. Defaults to a "gdi" folder in the path as input.
+    );
+
+    var res = clap.parse(clap.Help, &params, clap.parsers.default, .{}) catch |err| {
+        return err;
+    };
+    defer res.deinit();
+
+    if (res.args.help)
+        return clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{});
+    if (res.args.input == null)
+        return clap.usage(std.io.getStdErr().writer(), clap.Help, &params);
+
+    // Create allocator used throughout execution
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const gpa_alloc = gpa.allocator();
 
-    const cue_file = try std.fs.cwd().openFile("./Tokyo Xtreme Racer 2 (USA).cue", .{});
+    // Open cue file and get containing folder
+    const cue_file = try std.fs.openFileAbsolute(res.args.input.?, .{});
     defer cue_file.close();
 
-    const gdi_file = try std.fs.cwd().createFile("test.gdi", .{});
+    // Create output directory and open gdi file to write to
+    const redump_dir = try std.fs.openDirAbsolute(std.fs.path.dirname(res.args.input.?).?, .{});
+    const gdi_dir = try redump_dir.makeOpenPath(res.args.output orelse "gdi", .{});
+    const gdi_file = try gdi_dir.createFile("test.gdi", .{});
     defer gdi_file.close();
 
     const cue_reader = cue_file.reader();
@@ -231,7 +249,7 @@ pub fn main() anyerror!void {
             sector_total = 45000;
         }
 
-        var file = try std.fs.cwd().openFile(cue_data.file_name, .{});
+        var file = try redump_dir.openFile(cue_data.file_name, .{});
         const file_size = (try file.stat()).size;
 
         var sector_size: usize = 0;
@@ -244,7 +262,7 @@ pub fn main() anyerror!void {
             sector_total += gap_offset;
         }
 
-        const filename_with_ext = try writeFile(gpa_alloc, cue_data.file_name, cue_data.track.number, if (cue_data.track.mode == .audio) true else false, gap_offset);
+        const filename_with_ext = try writeFile(gpa_alloc, redump_dir, gdi_dir, cue_data.file_name, cue_data.track.number, if (cue_data.track.mode == .audio) true else false, gap_offset);
 
         const track_mode: u8 = if (cue_data.track.mode == .audio) 0 else 4;
         try gdi_file.writer().print("{} {} {} {} {s} 0\n", .{ idx + 1, sector_total, track_mode, BLOCK_SIZE, filename_with_ext });
