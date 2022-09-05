@@ -1,0 +1,2 @@
+* openFileAbsolute fails when cue is in same dir
+* output gdi dir already exists causes error

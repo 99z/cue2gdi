@@ -1,4 +1,5 @@
 const std = @import("std");
+const testing = std.testing;
 const clap = @import("clap");
 
 const BLOCK_SIZE = 2352;
@@ -21,16 +22,32 @@ const CueFile = struct {
     track: CueTrack,
 };
 
-fn getFileName(cue_line: []const u8) []const u8 {
+fn getFileName(cue_line: []const u8) ![]const u8 {
     // Get index of first instance of "
-    const index = std.mem.indexOfScalar(u8, cue_line, '"') orelse @panic("no name");
+    const index = std.mem.indexOfScalar(u8, cue_line, '"') orelse return error.NoDoubleQuote;
 
     // If we only have a single " at the end of the file line, it's invalid
-    if (index + 1 >= cue_line.len) @panic("no closing quote");
+    if (index + 1 >= cue_line.len) return error.NoClosingQuote;
 
     const rest = cue_line[index + 1 ..];
-    const stop = std.mem.indexOfScalar(u8, rest, '"') orelse @panic("no stop");
+    const stop = std.mem.indexOfScalar(u8, rest, '"') orelse return error.NoClosingQuote;
     return rest[0..stop];
+}
+
+test "getFileName" {
+    // FILE line is valid
+    const valid_filename = try getFileName("FILE \"Resident Evil 2 (USA) (Disc 1) (Track 1).bin\" BINARY");
+    try testing.expect(std.mem.eql(u8, valid_filename, "Resident Evil 2 (USA) (Disc 1) (Track 1).bin"));
+
+    // FILE line does not have closing quote
+    _ = getFileName("FILE Resident Evil 2 (USA) (Disc 1) (Track 1).bin\" BINARY") catch |err| {
+        try testing.expect(err == error.NoClosingQuote);
+    };
+
+    // FILE line has single quote at end of line
+    _ = getFileName("asdf.cue\"") catch |err| {
+        try testing.expect(err == error.NoClosingQuote);
+    };
 }
 
 inline fn getUTF8Size(char: u8) u3 {
@@ -124,7 +141,7 @@ fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) 
                     try cue_files.append(gpa_alloc, .{
                         .rem_type = current_rem,
                         // Causes a segfault if I simply do .file_name = filename_buf
-                        .file_name = try std.mem.Allocator.dupe(std.heap.page_allocator, u8, getFileName(filename_buf)),
+                        .file_name = try std.mem.Allocator.dupe(std.heap.page_allocator, u8, try getFileName(filename_buf)),
                         .track = cue_track,
                     });
 
@@ -191,7 +208,7 @@ fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) 
                 try cue_files.append(gpa_alloc, .{
                     .rem_type = current_rem,
                     // Causes a segfault if I simply do .file_name = filename_buf
-                    .file_name = try std.mem.Allocator.dupe(std.heap.page_allocator, u8, getFileName(filename_buf)),
+                    .file_name = try std.mem.Allocator.dupe(std.heap.page_allocator, u8, try getFileName(filename_buf)),
                     .track = cue_track,
                 });
 
@@ -236,7 +253,10 @@ pub fn main() anyerror!void {
 
     const cue_reader = cue_file.reader();
 
-    var cue_files = try extractCueData(gpa_alloc, cue_reader);
+    var cue_files = extractCueData(gpa_alloc, cue_reader) catch |err| {
+        std.debug.print("Failed to extract data from cuesheet with error: {any}\nIs cuesheet malformed?", .{err});
+        std.os.exit(1);
+    };
     defer cue_files.deinit(gpa_alloc);
 
     try gdi_file.writer().print("{}\n", .{cue_files.len});

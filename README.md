@@ -71,8 +71,15 @@ I found it difficult to obtain accurate information on the GD-ROM format.
 * https://multimedia.cx/eggs/understanding-the-dreamcast-gd-rom-layout/ is best breakdown I could find.
 * See `docs/gd-ws.pps` for Sega's presentation on the format.
 
+## Thanks
+
+* #zig-help on the Zig Discord
+* Multimedia Mike from multimedia.cx
+* @sirconan on github for his [JS gdi converter](https://github.com/sirconan/gdi-conversion)
+
 ## TODO
 
 - [ ] Verify the sector offset code is correct. I think games *work* without it being 100%, but I'd like it to be 100%
 - [ ] Tests and automatic CI running of tests
 - [ ] CI building and releasing
+- [ ] Support for shrinking game size by removing padded zeroes
