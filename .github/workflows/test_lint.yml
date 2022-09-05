@@ -24,4 +24,4 @@ jobs:
       - uses: goto-bus-stop/setup-zig@v1
         with:
           version: master
-      - run: zig fmt .; zig build test
+      - run: find . -path '*/src/main.zig' | xargs zig fmt; zig build test
