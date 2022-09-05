@@ -24,4 +24,4 @@ jobs:
       - uses: goto-bus-stop/setup-zig@v1
         with:
           version: master
-      - run: zig fmt cue2gdi/src/*.zig; zig build test
+      - run: zig fmt .; zig build test
