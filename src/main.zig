@@ -231,7 +231,7 @@ pub fn main() anyerror!void {
     // Create output directory and open gdi file to write to
     const redump_dir = try std.fs.openDirAbsolute(std.fs.path.dirname(res.args.input.?).?, .{});
     const gdi_dir = try redump_dir.makeOpenPath(res.args.output orelse "gdi", .{});
-    const gdi_file = try gdi_dir.createFile("test.gdi", .{});
+    const gdi_file = try gdi_dir.createFile("disc.gdi", .{});
     defer gdi_file.close();
 
     const cue_reader = cue_file.reader();
