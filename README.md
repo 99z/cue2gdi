@@ -49,19 +49,16 @@ track number | starting sector (bytes) | if MODE1 then 4, if AUDIO then 0 | byte
 ...
 ```
 
-* .bin files in Redump backups are identical to those in GDI backups.
-* .raw files in GDI backups are different and indicate audio data.
+* GDI .bin files
+    * Track 3 is always a bin file containing a combination of filesystem layout information and game data.
+    * The last track is always a bin file containing game data.
+* GDI .raw files
+    * Track 2 is always a raw file containing sound to be played at boot. Redump backups can have a padding of zeroes prior to any actual audio data.
+    * All files between track 3 and track n-1 are raw files containing audio data.
 
 ## Implementation notes
 
-* First track can simply be renamed track01.bin in all cases
-* Multiple track sector offset handling:
-```
-    offset = (frame_amt + (seconds * 75) + (min * 60 * 75))
-    e.g. 00:02:00 would result in a sector offset of 150
-```
-* sector_amt = filesize of current track / block size (always 2352 for DC games) or, if multiple tracks, sector_amt = (track size - (offset * block size)) / block size and add offset to current sector
-
+* First track can simply be renamed track01.bin in all cases. Tracks 1 and 2 are normal CD format data. 
 * bin/raw files must be named `trackXX.{bin,raw}`
 * gdi file:
     * can be named anything for use with emulators
