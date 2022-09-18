@@ -50,33 +50,6 @@ test "getFileName" {
     };
 }
 
-inline fn getUTF8Size(char: u8) u3 {
-    return std.unicode.utf8ByteSequenceLength(char) catch {
-        return 1;
-    };
-}
-
-fn getIndex(unicode: []const u8, index: usize) ?usize {
-    var i: usize = 0;
-    var j: usize = 0;
-    while (i < unicode.len) {
-        if (i == index) return j;
-        i += getUTF8Size(unicode[i]);
-        j += 1;
-    }
-
-    return null;
-}
-
-fn find(string: []const u8, literal: []const u8) ?usize {
-    const index = std.mem.indexOf(u8, string[0..string.len], literal);
-    if (index) |i| {
-        return getIndex(string, i);
-    }
-
-    return null;
-}
-
 fn countIndexFrames(offset: TrackOffset) u32 {
     var total = offset.frames;
     total += (offset.seconds * 75);
@@ -133,7 +106,7 @@ fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) 
     while (true) {
         if (cue_reader.readUntilDelimiterAlloc(arena_alloc, '\n', 1024)) |line| {
             // Handle FILE information and REM information
-            if (find(line, "FILE") != null) {
+            if (std.mem.indexOf(u8, line, "FILE") != null) {
                 file_count += 1;
 
                 if (file_count > 1) {
@@ -151,14 +124,14 @@ fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) 
                     cue_track = undefined;
                 }
 
-                if (find(prev_line, "HIGH-DENSITY") != null) {
+                if (std.mem.indexOf(u8, prev_line, "HIGH-DENSITY") != null) {
                     current_rem = .high_density;
-                } else if (find(prev_line, "SINGLE-DENSITY") != null) {
+                } else if (std.mem.indexOf(u8, prev_line, "SINGLE-DENSITY") != null) {
                     current_rem = .single_density;
                 }
 
                 filename_buf = line;
-            } else if (find(line, "TRACK") != null) {
+            } else if (std.mem.indexOf(u8, line, "TRACK") != null) {
                 // Handle TRACK information
                 var split_iter = std.mem.split(u8, line, " ");
 
@@ -170,12 +143,12 @@ fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) 
                     }
                 }
 
-                if (find(line, "AUDIO") != null) {
+                if (std.mem.indexOf(u8, line, "AUDIO") != null) {
                     cue_track.mode = .audio;
-                } else if (find(line, "MODE1") != null) {
+                } else if (std.mem.indexOf(u8, line, "MODE1") != null) {
                     cue_track.mode = .data;
                 }
-            } else if (find(line, "INDEX") != null) {
+            } else if (std.mem.indexOf(u8, line, "INDEX") != null) {
                 var split_iter = std.mem.split(u8, line, " ");
                 while (split_iter.next()) |item| {
                     if (std.fmt.parseInt(u8, item, 10)) {
@@ -254,7 +227,7 @@ pub fn main() anyerror!void {
     const cue_reader = cue_file.reader();
 
     var cue_files = extractCueData(gpa_alloc, cue_reader) catch |err| {
-        std.debug.print("Failed to extract data from cuesheet with error: {any}\nIs cuesheet malformed?", .{err});
+        std.debug.print("Failed to extract data from cuesheet with error: {any}\nIs cuesheet malformed?\n", .{err});
         std.os.exit(1);
     };
     defer cue_files.deinit(gpa_alloc);
