@@ -65,7 +65,7 @@ fn writeFile(gpa: std.mem.Allocator, in_dir: std.fs.Dir, out_dir: std.fs.Dir, fi
     var filename_with_ext: []const u8 = try std.fmt.allocPrint(gpa, "track{any}.bin", .{track_num});
 
     if (gap_offset > 0) {
-        bin_file.seekTo(gap_offset * BLOCK_SIZE) catch @panic("could not seek bin file");
+        bin_file.seekTo(gap_offset * BLOCK_SIZE) catch return error.BadBinFile;
     }
 
     if (is_audio) {
@@ -255,7 +255,10 @@ pub fn main() anyerror!void {
             sector_total += gap_offset;
         }
 
-        const filename_with_ext = try writeFile(gpa_alloc, redump_dir, gdi_dir, cue_data.file_name, cue_data.track.number, if (cue_data.track.mode == .audio) true else false, gap_offset);
+        const filename_with_ext = writeFile(gpa_alloc, redump_dir, gdi_dir, cue_data.file_name, cue_data.track.number, if (cue_data.track.mode == .audio) true else false, gap_offset) catch |err| {
+            std.debug.print("Failed to write file {s} with error: {any}\nIs bin/cue data corrupt?\n", .{ cue_data.file_name, err });
+            std.os.exit(1);
+        };
 
         const track_mode: u8 = if (cue_data.track.mode == .audio) 0 else 4;
         try gdi_file.writer().print("{} {} {} {} {s} 0\n", .{ idx + 1, sector_total, track_mode, BLOCK_SIZE, filename_with_ext });
