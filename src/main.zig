@@ -8,7 +8,7 @@ const FOUR_GiB = 4294967296;
 const RemType = enum { single_density, high_density };
 const TrackMode = enum { data, audio };
 
-const TrackOffset = struct { minutes: u8, seconds: u8, frames: u8 };
+const TrackOffset = struct { minutes: u32, seconds: u32, frames: u32 };
 
 const CueTrack = struct {
     number: u8,
@@ -56,6 +56,18 @@ fn countIndexFrames(offset: TrackOffset) u32 {
     total += (offset.minutes * 60) * 75;
 
     return total;
+}
+
+test "countIndexFrames" {
+    // Test 2: Check that the function correctly handles multiple indices
+    var offset = TrackOffset{
+        .frames = 10,
+        .seconds = 30,
+        .minutes = 1,
+    };
+    const expected = (10 + (30 * 75) + (1 * 60 * 75));
+    var result = countIndexFrames(offset);
+    try testing.expect(result == expected);
 }
 
 fn writeFile(gpa: std.mem.Allocator, in_dir: std.fs.Dir, out_dir: std.fs.Dir, filename: []const u8, track_num: u8, is_audio: bool, gap_offset: u32) ![]const u8 {
