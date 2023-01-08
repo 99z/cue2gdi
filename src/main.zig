@@ -127,10 +127,10 @@ test "writeFile" {
     };
 }
 
-fn extractTrackData(line: []const u8) ?CueTrack {
+fn extractTrackData(line: []const u8) CueTrack {
     var split_iter = std.mem.split(u8, line, " ");
 
-    var cue_track = CueTrack{};
+    var cue_track = CueTrack{ .number = undefined, .mode = undefined, .indices = undefined };
     while (split_iter.next()) |item| {
         if (std.fmt.parseInt(u8, item, 10)) |number| {
             cue_track.number = number;
@@ -148,13 +148,15 @@ fn extractTrackData(line: []const u8) ?CueTrack {
     return cue_track;
 }
 
-fn extractIndexData(gpa_alloc: std.mem.Allocator, line: []const u8) ?std.MultiArrayList {
+fn extractIndexData(gpa_alloc: std.mem.Allocator, line: []const u8) !std.MultiArrayList(TrackOffset) {
     const TrackOffsetList = std.MultiArrayList(TrackOffset);
     var offset_list = TrackOffsetList{};
     var split_iter = std.mem.split(u8, line, " ");
 
     while (split_iter.next()) |item| {
-        if (std.fmt.parseInt(u8, item, 10)) |track_time| {
+        if (std.fmt.parseInt(u8, item, 10)) |_| {
+            // Result of .next() here should be the MM:SS:FF timestamp string
+            const track_time = split_iter.next();
             var track_split = std.mem.split(u8, track_time.?, ":");
 
             const time: [3]u8 = .{
@@ -176,18 +178,15 @@ fn extractIndexData(gpa_alloc: std.mem.Allocator, line: []const u8) ?std.MultiAr
     return offset_list;
 }
 
-fn extractFileData(file_count: u8, offset_list: std.MultiArrayList, gpa_alloc: std.mem.Allocator, cue_track: CueTrack, current_rem: RemType, filename_buf: []const u8) ?CueFile {
-    if (file_count > 1) {
-        cue_track.indices = try offset_list.clone(gpa_alloc);
-        return .{
-            .rem_type = current_rem,
-            // Causes a segfault if I simply do .file_name = filename_buf
-            .file_name = try std.mem.Allocator.dupe(std.heap.page_allocator, u8, try getFileName(filename_buf)),
-            .track = cue_track,
-        };
-    }
-
-    return null;
+fn extractFileData(offset_list: std.MultiArrayList(TrackOffset), gpa_alloc: std.mem.Allocator, cue_track: CueTrack, current_rem: RemType, filename_buf: []const u8) !CueFile {
+    var complete_cue_track = cue_track;
+    complete_cue_track.indices = try offset_list.clone(gpa_alloc);
+    return .{
+        .rem_type = current_rem,
+        // Causes a segfault if I simply do .file_name = filename_buf
+        .file_name = try std.mem.Allocator.dupe(std.heap.page_allocator, u8, try getFileName(filename_buf)),
+        .track = cue_track,
+    };
 }
 
 fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) anyerror!std.MultiArrayList(CueFile) {
@@ -205,21 +204,21 @@ fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) 
     defer arena.deinit();
     const arena_alloc = arena.allocator();
 
-    var cue_track: CueTrack = CueTrack{};
+    var cue_track: CueTrack = CueTrack{ .number = undefined, .mode = undefined, .indices = undefined };
     var current_rem = RemType.single_density;
     var filename_buf: []const u8 = &.{};
     var prev_line: []const u8 = &.{};
     var file_count: u8 = 0;
 
-    var file_data = CueFile{};
+    var file_data: CueFile = undefined;
 
     while (true) {
         if (cue_reader.readUntilDelimiterAlloc(arena_alloc, '\n', 1024)) |line| {
             if (std.mem.indexOf(u8, line, "FILE") != null) {
                 file_count += 1;
-                file_data = extractFileData(file_count, offset_list, gpa_alloc, cue_track, current_rem, filename_buf);
-                if (file_data) |file_data_result| {
-                    try cue_files.append(gpa_alloc, file_data_result);
+                if (file_count > 1) {
+                    file_data = try extractFileData(offset_list, gpa_alloc, cue_track, current_rem, filename_buf);
+                    try cue_files.append(gpa_alloc, file_data);
                 }
 
                 if (std.mem.indexOf(u8, prev_line, "HIGH-DENSITY") != null) {
@@ -230,16 +229,27 @@ fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) 
 
                 filename_buf = line;
                 offset_list = TrackOffsetList{};
-                cue_track = CueTrack{};
+                cue_track = CueTrack{ .number = undefined, .mode = undefined, .indices = undefined };
             } else if (std.mem.indexOf(u8, line, "TRACK") == null) {
-                file_data = extractTrackData(line);
+                cue_track = extractTrackData(line);
             } else if (std.mem.indexOf(u8, line, "INDEX") != null) {
-                offset_list = extractIndexData(line);
+                offset_list = try extractIndexData(gpa_alloc, line);
             }
 
             prev_line = line;
-        } else {
-            break;
+        } else |err| switch (err) {
+            else => {
+                cue_track.indices = try offset_list.clone(gpa_alloc);
+
+                try cue_files.append(gpa_alloc, .{
+                    .rem_type = current_rem,
+                    // Causes a segfault if I simply do .file_name = filename_buf
+                    .file_name = try std.mem.Allocator.dupe(std.heap.page_allocator, u8, try getFileName(filename_buf)),
+                    .track = cue_track,
+                });
+
+                break;
+            },
         }
     }
 
