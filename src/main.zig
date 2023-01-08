@@ -90,6 +90,43 @@ fn writeFile(gpa: std.mem.Allocator, in_dir: std.fs.Dir, out_dir: std.fs.Dir, fi
     return filename_with_ext;
 }
 
+test "writeFile" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const gpa_alloc = gpa.allocator();
+
+    var tmp_in = testing.tmpDir(.{});
+    defer tmp_in.cleanup();
+    var tmp_file = try tmp_in.dir.createFile("input.bin", .{});
+    defer tmp_file.close();
+
+    try tmp_file.writer().print("Hello, world!\n", .{});
+
+    var tmp_out = testing.tmpDir(.{});
+    defer tmp_out.cleanup();
+
+    const filename = "input.bin";
+    const track_num = 1;
+    const gap_offset = 0;
+    const expected = "track1.bin";
+
+    // Test 1: Check that the function correctly writes a data file
+    var result_data = try writeFile(gpa_alloc, tmp_in.dir, tmp_out.dir, filename, track_num, false, gap_offset);
+    try testing.expect(std.mem.eql(u8, result_data, expected));
+
+    // Test 2: Check that the function correctly writes an audio file
+    var result_audio = try writeFile(gpa_alloc, tmp_in.dir, tmp_out.dir, filename, track_num, true, gap_offset);
+    try testing.expect(std.mem.eql(u8, result_audio, "track1.raw"));
+
+    // Test 3: Check that the function correctly handles a gap offset
+    var result_gap = try writeFile(gpa_alloc, tmp_in.dir, tmp_out.dir, filename, track_num, false, 10);
+    try testing.expect(std.mem.eql(u8, result_gap, expected));
+
+    // Test 4: Check that the function correctly handles a gap offset failure
+    _ = writeFile(gpa_alloc, tmp_in.dir, tmp_out.dir, filename, track_num, false, 10) catch |err| {
+        try testing.expect(err == error.BadBinFile);
+    };
+}
+
 // TODO: Break this up
 fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) anyerror!std.MultiArrayList(CueFile) {
     // Setup MultiArrayList of CueFile structs
