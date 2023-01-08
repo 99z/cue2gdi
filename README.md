@@ -79,11 +79,17 @@ I found it difficult to obtain accurate information on the GD-ROM format.
 
 ## TODO
 
+### Required
+
 - [ ] Tests
     - [x] `getFileName`
     - [x] `countIndexFrames`
     - [x] `writeFile`
+- [ ] Put tests in separate file(?)
 - [ ] CI running of tests
 - [ ] CI building and releasing
+
+### Optional
+
 - [ ] Verify the sector offset code is correct. I think games *work* without it being 100%, but I'd like it to be 100%
 - [ ] Support for shrinking game size by removing padded zeroes
