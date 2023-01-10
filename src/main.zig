@@ -200,7 +200,7 @@ fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) 
             } else if (std.mem.indexOf(u8, line, "INDEX") != null) {
                 var split_iter = std.mem.split(u8, line, " ");
                 while (split_iter.next()) |item| {
-                    if (std.fmt.parseInt(u8, item, 10)) {
+                    if (std.fmt.parseInt(u8, item, 10)) |_| {
                         // Result of .next() here should be the MM:SS:FF timestamp string
                         const track_time = split_iter.next();
                         var track_split = std.mem.split(u8, track_time.?, ":");
