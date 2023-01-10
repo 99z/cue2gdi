@@ -175,17 +175,18 @@ fn extractIndexData(gpa_alloc: std.mem.Allocator, line: []const u8) !std.MultiAr
         }
     }
 
-    return offset_list;
+    return offset_list.clone(gpa_alloc);
 }
 
 fn extractFileData(offset_list: std.MultiArrayList(TrackOffset), gpa_alloc: std.mem.Allocator, cue_track: CueTrack, current_rem: RemType, filename_buf: []const u8) !CueFile {
     var complete_cue_track = cue_track;
     complete_cue_track.indices = try offset_list.clone(gpa_alloc);
+
     return .{
         .rem_type = current_rem,
         // Causes a segfault if I simply do .file_name = filename_buf
         .file_name = try std.mem.Allocator.dupe(std.heap.page_allocator, u8, try getFileName(filename_buf)),
-        .track = cue_track,
+        .track = complete_cue_track,
     };
 }
 
@@ -230,7 +231,7 @@ fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) 
                 filename_buf = line;
                 offset_list = TrackOffsetList{};
                 cue_track = CueTrack{ .number = undefined, .mode = undefined, .indices = undefined };
-            } else if (std.mem.indexOf(u8, line, "TRACK") == null) {
+            } else if (std.mem.indexOf(u8, line, "TRACK") != null) {
                 cue_track = extractTrackData(line);
             } else if (std.mem.indexOf(u8, line, "INDEX") != null) {
                 offset_list = try extractIndexData(gpa_alloc, line);
@@ -253,7 +254,7 @@ fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) 
         }
     }
 
-    return cue_files;
+    return try cue_files.clone(gpa_alloc);
 }
 
 pub fn main() anyerror!void {
