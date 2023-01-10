@@ -148,9 +148,7 @@ fn extractTrackData(line: []const u8) CueTrack {
     return cue_track;
 }
 
-fn extractIndexData(gpa_alloc: std.mem.Allocator, line: []const u8) !std.MultiArrayList(TrackOffset) {
-    const TrackOffsetList = std.MultiArrayList(TrackOffset);
-    var offset_list = TrackOffsetList{};
+fn extractIndexData(line: []const u8) !?TrackOffset {
     var split_iter = std.mem.split(u8, line, " ");
 
     while (split_iter.next()) |item| {
@@ -165,17 +163,17 @@ fn extractIndexData(gpa_alloc: std.mem.Allocator, line: []const u8) !std.MultiAr
                 std.fmt.parseInt(u8, track_split.next() orelse "00", 10) catch 0,
             };
 
-            try offset_list.append(gpa_alloc, .{
+            return .{
                 .minutes = time[0],
                 .seconds = time[1],
                 .frames = time[2],
-            });
+            };
         } else |err| switch (err) {
             else => continue,
         }
     }
 
-    return offset_list.clone(gpa_alloc);
+    return null;
 }
 
 fn extractFileData(offset_list: std.MultiArrayList(TrackOffset), gpa_alloc: std.mem.Allocator, cue_track: CueTrack, current_rem: RemType, filename_buf: []const u8) !CueFile {
@@ -234,7 +232,9 @@ fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) 
             } else if (std.mem.indexOf(u8, line, "TRACK") != null) {
                 cue_track = extractTrackData(line);
             } else if (std.mem.indexOf(u8, line, "INDEX") != null) {
-                offset_list = try extractIndexData(gpa_alloc, line);
+                if (try extractIndexData(line)) |offset| {
+                    try offset_list.append(gpa_alloc, offset);
+                }
             }
 
             prev_line = line;
