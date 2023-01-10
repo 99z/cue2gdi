@@ -127,14 +127,75 @@ test "writeFile" {
     };
 }
 
-// TODO: Break this up
+fn extractTrackData(line: []const u8) CueTrack {
+    var split_iter = std.mem.split(u8, line, " ");
+
+    var cue_track = CueTrack{ .number = undefined, .mode = undefined, .indices = undefined };
+    while (split_iter.next()) |item| {
+        if (std.fmt.parseInt(u8, item, 10)) |number| {
+            cue_track.number = number;
+        } else |err| switch (err) {
+            else => continue,
+        }
+    }
+
+    if (std.mem.indexOf(u8, line, "AUDIO") != null) {
+        cue_track.mode = .audio;
+    } else if (std.mem.indexOf(u8, line, "MODE1") != null) {
+        cue_track.mode = .data;
+    }
+
+    return cue_track;
+}
+
+fn extractIndexData(line: []const u8) !?TrackOffset {
+    var split_iter = std.mem.split(u8, line, " ");
+
+    while (split_iter.next()) |item| {
+        if (std.fmt.parseInt(u8, item, 10)) |_| {
+            // Result of .next() here should be the MM:SS:FF timestamp string
+            const track_time = split_iter.next();
+            var track_split = std.mem.split(u8, track_time.?, ":");
+
+            const time: [3]u8 = .{
+                std.fmt.parseInt(u8, track_split.next() orelse "00", 10) catch 0,
+                std.fmt.parseInt(u8, track_split.next() orelse "00", 10) catch 0,
+                std.fmt.parseInt(u8, track_split.next() orelse "00", 10) catch 0,
+            };
+
+            return .{
+                .minutes = time[0],
+                .seconds = time[1],
+                .frames = time[2],
+            };
+        } else |err| switch (err) {
+            else => continue,
+        }
+    }
+
+    return null;
+}
+
+fn extractFileData(offset_list: std.MultiArrayList(TrackOffset), gpa_alloc: std.mem.Allocator, cue_track: CueTrack, current_rem: RemType, filename_buf: []const u8) !CueFile {
+    var complete_cue_track = cue_track;
+    complete_cue_track.indices = try offset_list.clone(gpa_alloc);
+
+    return .{
+        .rem_type = current_rem,
+        // Causes a segfault if I simply do .file_name = filename_buf
+        .file_name = try std.mem.Allocator.dupe(std.heap.page_allocator, u8, try getFileName(filename_buf)),
+        .track = complete_cue_track,
+    };
+}
+
 fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) anyerror!std.MultiArrayList(CueFile) {
     // Setup MultiArrayList of CueFile structs
     const CueFileList = std.MultiArrayList(CueFile);
     var cue_files = CueFileList{};
+
+    defer cue_files.deinit(gpa_alloc);
     const TrackOffsetList = std.MultiArrayList(TrackOffset);
     var offset_list = TrackOffsetList{};
-    defer cue_files.deinit(gpa_alloc);
     defer offset_list.deinit(gpa_alloc);
 
     // Create allocator for reading file contents
@@ -142,35 +203,21 @@ fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) 
     defer arena.deinit();
     const arena_alloc = arena.allocator();
 
-    // TODO: Remove undefined initialization
-    var cue_track: CueTrack = undefined;
+    var cue_track: CueTrack = CueTrack{ .number = undefined, .mode = undefined, .indices = undefined };
     var current_rem = RemType.single_density;
     var filename_buf: []const u8 = &.{};
     var prev_line: []const u8 = &.{};
     var file_count: u8 = 0;
 
-    // Previously I was using `readUntilDelimeterOrEof`. I ran into a weird problem where the value of
-    // prev_line was not what I expected. This reddit post helped: https://www.reddit.com/r/Zig/comments/r6b84d/i_implement_a_code_to_read_file_line_by_line_but/
-    // Specifically: "You are reading into the beginning of buf in every iteration of the loop, and then add a slice of buf into your array list."
+    var file_data: CueFile = undefined;
+
     while (true) {
         if (cue_reader.readUntilDelimiterAlloc(arena_alloc, '\n', 1024)) |line| {
-            // Handle FILE information and REM information
             if (std.mem.indexOf(u8, line, "FILE") != null) {
                 file_count += 1;
-
                 if (file_count > 1) {
-                    cue_track.indices = try offset_list.clone(gpa_alloc);
-                    try cue_files.append(gpa_alloc, .{
-                        .rem_type = current_rem,
-                        // Causes a segfault if I simply do .file_name = filename_buf
-                        .file_name = try std.mem.Allocator.dupe(std.heap.page_allocator, u8, try getFileName(filename_buf)),
-                        .track = cue_track,
-                    });
-
-                    filename_buf = &.{};
-                    offset_list = TrackOffsetList{};
-                    // TODO: Removed undefined assignment
-                    cue_track = undefined;
+                    file_data = try extractFileData(offset_list, gpa_alloc, cue_track, current_rem, filename_buf);
+                    try cue_files.append(gpa_alloc, file_data);
                 }
 
                 if (std.mem.indexOf(u8, prev_line, "HIGH-DENSITY") != null) {
@@ -180,45 +227,13 @@ fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) 
                 }
 
                 filename_buf = line;
+                offset_list = TrackOffsetList{};
+                cue_track = CueTrack{ .number = undefined, .mode = undefined, .indices = undefined };
             } else if (std.mem.indexOf(u8, line, "TRACK") != null) {
-                // Handle TRACK information
-                var split_iter = std.mem.split(u8, line, " ");
-
-                while (split_iter.next()) |item| {
-                    if (std.fmt.parseInt(u8, item, 10)) |number| {
-                        cue_track.number = number;
-                    } else |err| switch (err) {
-                        else => continue,
-                    }
-                }
-
-                if (std.mem.indexOf(u8, line, "AUDIO") != null) {
-                    cue_track.mode = .audio;
-                } else if (std.mem.indexOf(u8, line, "MODE1") != null) {
-                    cue_track.mode = .data;
-                }
+                cue_track = extractTrackData(line);
             } else if (std.mem.indexOf(u8, line, "INDEX") != null) {
-                var split_iter = std.mem.split(u8, line, " ");
-                while (split_iter.next()) |item| {
-                    if (std.fmt.parseInt(u8, item, 10)) |_| {
-                        // Result of .next() here should be the MM:SS:FF timestamp string
-                        const track_time = split_iter.next();
-                        var track_split = std.mem.split(u8, track_time.?, ":");
-
-                        const time: [3]u8 = .{
-                            std.fmt.parseInt(u8, track_split.next() orelse "00", 10) catch 0,
-                            std.fmt.parseInt(u8, track_split.next() orelse "00", 10) catch 0,
-                            std.fmt.parseInt(u8, track_split.next() orelse "00", 10) catch 0,
-                        };
-
-                        try offset_list.append(gpa_alloc, .{
-                            .minutes = time[0],
-                            .seconds = time[1],
-                            .frames = time[2],
-                        });
-                    } else |err| switch (err) {
-                        else => continue,
-                    }
+                if (try extractIndexData(line)) |offset| {
+                    try offset_list.append(gpa_alloc, offset);
                 }
             }
 
