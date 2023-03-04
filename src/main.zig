@@ -208,7 +208,27 @@ fn extractIndexData(line: []const u8) !?TrackOffset {
         }
     }
 
-    return null;
+    return error.BadIndex;
+}
+
+test "extractIndexData" {
+    // Test 1: Check that the function correctly extracts index data
+    const line = "INDEX 01 01:02:03";
+    var expected = TrackOffset{
+        .minutes = 1,
+        .seconds = 2,
+        .frames = 3,
+    };
+    var result = try extractIndexData(line);
+    try testing.expect(result.?.minutes == expected.minutes);
+    try testing.expect(result.?.seconds == expected.seconds);
+    try testing.expect(result.?.frames == expected.frames);
+
+    // Test 2: Check that the function correctly handles a bad index
+    const line_bad = "INDEX a 00:02:00";
+    _ = extractIndexData(line_bad) catch |err| {
+        try testing.expect(err == error.BadIndex);
+    };
 }
 
 fn extractFileData(offset_list: std.MultiArrayList(TrackOffset), gpa_alloc: std.mem.Allocator, cue_track: CueTrack, current_rem: RemType, filename_buf: []const u8) !CueFile {
