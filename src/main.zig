@@ -243,6 +243,36 @@ fn extractFileData(offset_list: std.MultiArrayList(TrackOffset), gpa_alloc: std.
     };
 }
 
+test "extractFileData" {
+    const offset_list = std.MultiArrayList(TrackOffset){};
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const gpa_alloc = gpa.allocator();
+
+    const cue_track = CueTrack{
+        .number = 1,
+        .mode = .data,
+        .indices = undefined,
+    };
+    const current_rem = RemType.single_density;
+    const filename_buf = "\"test.cue\"";
+
+    // Test 1: Check that the function correctly extracts file data
+    var result = try extractFileData(offset_list, gpa_alloc, cue_track, current_rem, filename_buf);
+    try testing.expect(result.rem_type == current_rem);
+
+    // Test 2: Check that the function correctly handles a track name without quotes
+    const filename_buf_bad = "test.cue";
+    _ = extractFileData(offset_list, gpa_alloc, cue_track, current_rem, filename_buf_bad) catch |err| {
+        try testing.expect(err == error.NoDoubleQuote);
+    };
+
+    // Test 3: Check that the function correctly handles a track name with a missing closing quote
+    const filename_buf_bad2 = "\"test.cue";
+    _ = extractFileData(offset_list, gpa_alloc, cue_track, current_rem, filename_buf_bad2) catch |err| {
+        try testing.expect(err == error.NoClosingQuote);
+    };
+}
+
 fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) anyerror!std.MultiArrayList(CueFile) {
     // Setup MultiArrayList of CueFile structs
     const CueFileList = std.MultiArrayList(CueFile);
