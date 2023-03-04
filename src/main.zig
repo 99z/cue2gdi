@@ -127,7 +127,7 @@ test "writeFile" {
     };
 }
 
-fn extractTrackData(line: []const u8) CueTrack {
+fn extractTrackData(line: []const u8) !CueTrack {
     var split_iter = std.mem.split(u8, line, " ");
 
     var cue_track = CueTrack{ .number = undefined, .mode = undefined, .indices = undefined };
@@ -143,9 +143,44 @@ fn extractTrackData(line: []const u8) CueTrack {
         cue_track.mode = .audio;
     } else if (std.mem.indexOf(u8, line, "MODE1") != null) {
         cue_track.mode = .data;
+    } else {
+        // Only audio and data (mode1) tracks should be present in redump.org dumps
+        return error.BadTrackType;
     }
 
     return cue_track;
+}
+
+test "extractTrackData" {
+    // Test 1: Check that the function correctly extracts track data
+    const line = "TRACK 01 MODE1/2352";
+    var expected = CueTrack{
+        .number = 1,
+        .mode = .data,
+        .indices = undefined,
+    };
+    var result = try extractTrackData(line);
+    try testing.expect(result.number == expected.number);
+    try testing.expect(result.mode == expected.mode);
+    try testing.expect(result.indices.len == expected.indices.len);
+
+    // Test 2: Check that the function correctly extracts audio track data
+    const line_audio = "TRACK 01 AUDIO";
+    expected = CueTrack{
+        .number = 1,
+        .mode = .audio,
+        .indices = undefined,
+    };
+    result = try extractTrackData(line_audio);
+    try testing.expect(result.number == expected.number);
+    try testing.expect(result.mode == expected.mode);
+    try testing.expect(result.indices.len == expected.indices.len);
+
+    // Test 3: Check that the function correctly handles a bad track type
+    const line_bad = "TRACK 01 MODE2/2352";
+    _ = extractTrackData(line_bad) catch |err| {
+        try testing.expect(err == error.BadTrackType);
+    };
 }
 
 fn extractIndexData(line: []const u8) !?TrackOffset {
@@ -230,7 +265,7 @@ fn extractCueData(gpa_alloc: std.mem.Allocator, cue_reader: std.fs.File.Reader) 
                 offset_list = TrackOffsetList{};
                 cue_track = CueTrack{ .number = undefined, .mode = undefined, .indices = undefined };
             } else if (std.mem.indexOf(u8, line, "TRACK") != null) {
-                cue_track = extractTrackData(line);
+                cue_track = try extractTrackData(line);
             } else if (std.mem.indexOf(u8, line, "INDEX") != null) {
                 if (try extractIndexData(line)) |offset| {
                     try offset_list.append(gpa_alloc, offset);
