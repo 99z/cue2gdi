@@ -354,7 +354,7 @@ pub fn main() anyerror!void {
     };
     defer res.deinit();
 
-    if (res.args.help)
+    if (res.args.help != 0)
         return clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{});
     if (res.args.input == null)
         return clap.usage(std.io.getStdErr().writer(), clap.Help, &params);
