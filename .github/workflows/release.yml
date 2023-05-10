@@ -39,13 +39,8 @@ jobs:
           for target in "${targets[@]}"; do
             mkdir -p artifacts/$target
             echo "Building target ${target}..."   
-            if [ "${GITHUB_REF##*/}" == "master" ]; then
-              echo "Building safe"
-              zig build -Dtarget=${target} -Doptimize=ReleaseSafe --prefix artifacts/${target}/
-            else
-              echo "Building debug as action is not running on master"
-              zig build -Dtarget=${target} --prefix artifacts/${target}/
-            fi
+            echo "Building safe"
+            zig build -Dtarget=${target} -Doptimize=ReleaseSafe --prefix artifacts/${target}/
             cp LICENSE.md artifacts/${target}/
           done
 
@@ -69,20 +64,6 @@ jobs:
         with:
           name: cue2gdi-x86_64-macos
           path: artifacts/x86_64-macos/
-
-      - name: Upload x86-windows artifact
-        if: ${{ matrix.os == 'ubuntu-latest' }}
-        uses: actions/upload-artifact@v3
-        with:
-          name: cue2gdi-x86-windows
-          path: artifacts/x86-windows/
-
-      - name: Upload x86-linux artifact
-        if: ${{ matrix.os == 'ubuntu-latest' }}
-        uses: actions/upload-artifact@v3
-        with:
-          name: cue2gdi-x86-linux
-          path: artifacts/x86-linux/
 
       - name: Upload aarch64-linux artifact
         if: ${{ matrix.os == 'ubuntu-latest' }}
