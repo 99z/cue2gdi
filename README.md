@@ -5,7 +5,7 @@ $ cue2gdi -h
             Display this help and exit.
 
     -i, --input <str>
-            Path to a Redump cue file. Must be in the same directory as the corresponding bin files. e.g. alshjdksjadh
+            Path to a Redump cue file. Must be in the same directory as the corresponding bin files.
 
     -o, --output <str>
             Path to output directory. Defaults to a "gdi" folder in the same path as input.
