@@ -42,39 +42,15 @@ jobs:
             echo "Building safe"
             zig build -Dtarget=${target} -Doptimize=ReleaseSafe --prefix artifacts/${target}/
             cp LICENSE.md artifacts/${target}/
+            zip -rj artifacts/cue2gdi-${target}.zip artifacts/${target}/*
           done
-
-      - name: Upload x86_64-windows artifact
-        if: ${{ matrix.os == 'ubuntu-latest' }}
-        uses: actions/upload-artifact@v3
+          
+      - name: Release
+        uses: softprops/action-gh-release@v1
         with:
-          name: cue2gdi-x86_64-windows
-          path: artifacts/x86_64-windows/
-
-      - name: Upload x86_64-linux artifact
-        if: ${{ matrix.os == 'ubuntu-latest' }}
-        uses: actions/upload-artifact@v3
-        with:
-          name: cue2gdi-x86_64-linux
-          path: artifacts/x86_64-linux/
-
-      - name: Upload x86_64-macos artifact
-        if: ${{ matrix.os == 'ubuntu-latest' }}
-        uses: actions/upload-artifact@v3
-        with:
-          name: cue2gdi-x86_64-macos
-          path: artifacts/x86_64-macos/
-
-      - name: Upload aarch64-linux artifact
-        if: ${{ matrix.os == 'ubuntu-latest' }}
-        uses: actions/upload-artifact@v3
-        with:
-          name: cue2gdi-aarch64-linux
-          path: artifacts/aarch64-linux/
-
-      - name: Upload aarch64-macos artifact
-        if: ${{ matrix.os == 'ubuntu-latest' }}
-        uses: actions/upload-artifact@v3
-        with:
-          name: cue2gdi-aarch64-macos
-          path: artifacts/aarch64-macos/
+          files: |
+            artifacts/cue2gdi-x86_64-windows.zip
+            artifacts/cue2gdi-x86_64-linux.zip
+            artifacts/cue2gdi-x86_64-macos.zip
+            artifacts/cue2gdi-aarch64-linux.zip
+            artifacts/cue2gdi-aarch64-macos.zip
