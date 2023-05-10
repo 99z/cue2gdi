@@ -346,7 +346,7 @@ pub fn main() anyerror!void {
     const params = comptime clap.parseParamsComptime(
         \\-h, --help    Display this help and exit.
         \\-i, --input <str>  Path to a Redump cue file. Must be in the same directory as the corresponding bin files.
-        \\-o, --output <str>    Path to output directory. Defaults to a "gdi" folder in the path as input.
+        \\-o, --output <str>    Path to output directory. Defaults to a "gdi" folder in the same path as input.
     );
 
     var res = clap.parse(clap.Help, &params, clap.parsers.default, .{}) catch |err| {
@@ -356,19 +356,23 @@ pub fn main() anyerror!void {
 
     if (res.args.help != 0)
         return clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{});
-    if (res.args.input == null)
-        return clap.usage(std.io.getStdErr().writer(), clap.Help, &params);
+    if (res.args.input == null) {
+        try clap.usage(std.io.getStdErr().writer(), clap.Help, &params);
+        std.debug.print("\nExample: cue2gdi -i \"/home/Spike/roms/RE2/Resident Evil 2(USA).cue\" -o /home/Spike/roms/RE2/gdi\n", .{});
+        std.debug.print("cue2gdi -h for more information\n", .{});
+        return std.os.exit(1);
+    }
 
     // Create allocator used throughout execution
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const gpa_alloc = gpa.allocator();
 
     // Open cue file and get containing folder
-    const cue_file = try std.fs.openFileAbsolute(res.args.input.?, .{});
+    const cue_file = if (std.fs.path.isAbsolute(res.args.input.?)) try std.fs.openFileAbsolute(res.args.input.?, .{}) else try std.fs.cwd().openFile(res.args.input.?, .{});
     defer cue_file.close();
+    const redump_dir = if (std.fs.path.isAbsolute(res.args.input.?)) try std.fs.openDirAbsolute(std.fs.path.dirname(res.args.input.?).?, .{}) else try std.fs.cwd().openDir(std.fs.path.dirname(res.args.input.?) orelse ".", .{});
 
     // Create output directory and open gdi file to write to
-    const redump_dir = try std.fs.openDirAbsolute(std.fs.path.dirname(res.args.input.?).?, .{});
     const gdi_dir = try redump_dir.makeOpenPath(res.args.output orelse "gdi", .{});
     const gdi_file = try gdi_dir.createFile("disc.gdi", .{});
     defer gdi_file.close();

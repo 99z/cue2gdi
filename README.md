@@ -1,3 +1,20 @@
+## Usage
+```
+$ cue2gdi -h
+    -h, --help
+            Display this help and exit.
+
+    -i, --input <str>
+            Path to a Redump cue file. Must be in the same directory as the corresponding bin files. e.g. alshjdksjadh
+
+    -o, --output <str>
+            Path to output directory. Defaults to a "gdi" folder in the same path as input.
+
+$ cue2gdi -i "/home/Spike/roms/RE2/Resident Evil 2(USA).cue" -o /home/Spike/roms/RE2/gdi
+$ ls /home/spike/roms/RE2/gdi
+disc.gdi        track1.bin      track2.raw      track3.bin
+```
+
 ## General notes
 
 Redump cue files are in the format:
@@ -86,8 +103,8 @@ I found it difficult to obtain accurate information on the GD-ROM format.
     - [x] `countIndexFrames`
     - [x] `writeFile`
 - [ ] Put tests in separate file(?)
-- [ ] CI running of tests
-- [ ] CI building and releasing
+- [x] CI running of tests
+- [x] CI building and releasing
 
 ### Optional
 
