@@ -46,6 +46,7 @@ jobs:
           done
           
       - name: Release
+        if: ${{ matrix.os == 'ubuntu-latest' }}
         uses: softprops/action-gh-release@v1
         with:
           files: |
